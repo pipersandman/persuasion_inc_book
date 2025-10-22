@@ -30,7 +30,7 @@ print(f"✓ Dataset prepared")
 
 # Load base model
 print("🤖 Loading base model...")
-model_name = "mistralai/Mistral-7B-v0.1"  # No special access needed
+model_name = "mistralai/Mistral-7B-v0.1"
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
