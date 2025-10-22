@@ -1,7 +1,5 @@
-fine_tuned_model/
-results/
 __pycache__/
 *.pyc
-generated_book.md
-*.md
-book_progress_*.json
+generated_ch*.md
+persuasion_inc_full.md
+out/conversations.db
