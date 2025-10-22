@@ -1,0 +1,7 @@
+fine_tuned_model/
+results/
+__pycache__/
+*.pyc
+generated_book.md
+*.md
+book_progress_*.json
