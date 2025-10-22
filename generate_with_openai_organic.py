@@ -1,36 +1,31 @@
-"""Book generation with YOUR organic flow - adapted for fine-tuned model on RunPod."""
+"""Book generation with truly organic flow - all characteristics woven naturally."""
+import openai
 import json
 import sqlite3
 import time
+import os
 from typing import Dict, List
+from dotenv import load_dotenv
 import re
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import PeftModel
-import torch
+
+# Load environment variables
+load_dotenv()
+
+# Set API key
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
 class PersuasionIncGenerator:
-    """Generate Persuasion Inc with organic, natural flow using fine-tuned model."""
+    """Generate Persuasion Inc with organic, natural flow."""
     
-    def __init__(self, fine_tuned_model_path: str = "./fine_tuned_model"):
-        print("🤖 Loading fine-tuned model...")
+    def __init__(self):
+        # Verify API key is loaded
+        if not openai.api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment variables!")
         
-        # Load your fine-tuned model
-        base_model_name = "mistralai/Mistral-7B-v0.1"
-        
-        self.tokenizer = AutoTokenizer.from_pretrained(fine_tuned_model_path)
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-            load_in_8bit=True,
-            device_map="auto",
-            torch_dtype=torch.float16
-        )
-        
-        self.model = PeftModel.from_pretrained(base_model, fine_tuned_model_path)
-        self.model.eval()
-        print("✓ Model loaded")
+        print(f"API key loaded: {openai.api_key[:20]}...")
         
         # Load style profile
-        with open('data/writing_style_profile.json', 'r', encoding='utf-8') as f:
+        with open('out/writing_style_profile.json', 'r', encoding='utf-8') as f:
             self.style = json.load(f)
         
         # Load book outline
@@ -38,7 +33,7 @@ class PersuasionIncGenerator:
             self.book = json.load(f)
         
         # Database connection
-        self.conn = sqlite3.connect('data/conversations.db')
+        self.conn = sqlite3.connect('out/conversations.db')
         
         # Track generated content
         self.previous_chapters = []
@@ -87,7 +82,7 @@ class PersuasionIncGenerator:
         return unique[:limit]
     
     def build_organic_prompt(self, chapter: Dict, relevant_convs: List[Dict]) -> str:
-        """Create YOUR detailed prompt that encourages natural flow and organic style integration."""
+        """Create a prompt that encourages natural flow and organic style integration."""
         
         # Extract insights from conversations
         conv_insights = ""
@@ -175,11 +170,10 @@ Let the different tones serve the content organically:
 The reader should feel like they're being let in on something important by someone who understands both the gravity and the absurdity of our situation.
 
 TARGET: 2500-3500 words. Write the complete chapter as flowing prose with natural paragraph breaks, not rigid sections.
-
-Chapter:"""
+"""
     
-    def generate_chapter(self, chapter_index: int) -> str:
-        """Generate a complete chapter with organic flow using fine-tuned model."""
+    def generate_chapter(self, chapter_index: int, model: str = "gpt-4") -> str:
+        """Generate a complete chapter with organic flow."""
         chapter = self.book['chapters'][chapter_index]
         print(f"\n📖 Generating: {chapter['title']}")
         print("=" * 60)
@@ -192,35 +186,41 @@ Chapter:"""
         )
         print(f"   Found {len(relevant)} relevant conversations")
         
-        # Build the organic prompt (YOUR detailed one)
+        # Build the organic prompt
         prompt = self.build_organic_prompt(chapter, relevant)
         
         print(f"✍️  Generating chapter with organic flow...")
-        print(f"    (This may take 20-40 minutes for ~3000 words)")
+        print(f"    (This may take 1-2 minutes for GPT-4 to generate ~3000 words)")
         
         try:
-            # Tokenize prompt
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+            # Call OpenAI API with generous token limit for full chapter
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": """You are an expert writer creating 'Persuasion, Inc.' - a book about 
+surveillance capitalism, algorithmic persuasion, and technological control. Your writing style blends:
+- Orwell's moral urgency and clarity
+- Zuboff's academic depth made accessible  
+- Rushkoff's rebellious cultural criticism
+- David Foster Wallace's intelligence and self-awareness
+- Jon Ronson's wry investigative wit
+- Chuck Klosterman's philosophical hypotheticals
+
+You write serious analysis punctuated by dark humor. You ground arguments in behavioral economics 
+and media theory while keeping it readable. You help people see systems of control they've missed 
+while acknowledging the absurdity of it all. You NEVER use em-dashes (— or –)."""
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=4500,  # Generous limit for 3000+ words
+                presence_penalty=0.3,
+                frequency_penalty=0.3
+            )
             
-            # Generate with fine-tuned model
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=4000,  # ~3000 words
-                    temperature=0.8,
-                    top_p=0.9,
-                    top_k=50,
-                    do_sample=True,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    repetition_penalty=1.2,
-                    no_repeat_ngram_size=4
-                )
-            
-            # Decode output
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Extract just the chapter (remove prompt)
-            chapter_text = generated_text[len(prompt):].strip()
+            chapter_text = response['choices'][0]['message']['content']
             
             # Clean up
             chapter_text = self.clean_text(chapter_text)
@@ -243,7 +243,78 @@ Chapter:"""
             return chapter_text
             
         except Exception as e:
-            print(f"   ⚠️ Error generating chapter: {str(e)}")
+            error_msg = str(e)
+            print(f"   ⚠️ Error generating chapter: {error_msg}")
+            
+            # If it's a 502 or network error, provide helpful message
+            if "502" in error_msg or "Bad Gateway" in error_msg:
+                print("\n   💡 This is a temporary OpenAI/Cloudflare server issue.")
+                print("   Just run the command again and it should work.")
+                return ""
+            
+            # For other errors, try fallback
+            return self.generate_chapter_fallback(chapter, relevant, model)
+    
+    def generate_chapter_fallback(self, chapter: Dict, relevant_convs: List[Dict], model: str) -> str:
+        """Fallback: generate in two parts if full generation fails."""
+        print("   🔄 Attempting generation in two parts...")
+        
+        full_chapter = f"# {chapter['title']}\n\n"
+        
+        # Part 1: First half
+        prompt1 = f"""Write the first 1500-2000 words for chapter '{chapter['title']}'.
+
+Start with a compelling hook, then develop these themes: {', '.join(chapter['subtopics'][:2])}
+
+Use the voice described: Orwell + Rushkoff + David Foster Wallace. Serious analysis with dark humor.
+NO em-dashes. Flow naturally between analysis, satire, and insight."""
+        
+        try:
+            response1 = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You're writing 'Persuasion, Inc.' with Orwell's clarity and dark humor."},
+                    {"role": "user", "content": prompt1}
+                ],
+                temperature=0.8,
+                max_tokens=2500,
+                presence_penalty=0.3,
+                frequency_penalty=0.3
+            )
+            
+            part1 = self.clean_text(response1['choices'][0]['message']['content'])
+            full_chapter += part1 + "\n\n"
+            print("   ✓ Generated first part")
+            time.sleep(3)
+            
+            # Part 2: Second half
+            prompt2 = f"""Continue and conclude the chapter '{chapter['title']}'.
+
+Build on what came before. Develop these remaining themes: {', '.join(chapter['subtopics'][2:])}
+
+Ground arguments in behavioral economics or media theory. End with something that lingers.
+NO em-dashes. Maintain the voice: analytical but wry, serious but self-aware."""
+            
+            response2 = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "Continue writing 'Persuasion, Inc.' maintaining voice and style."},
+                    {"role": "user", "content": prompt2}
+                ],
+                temperature=0.8,
+                max_tokens=2500,
+                presence_penalty=0.3,
+                frequency_penalty=0.3
+            )
+            
+            part2 = self.clean_text(response2['choices'][0]['message']['content'])
+            full_chapter += part2
+            print("   ✓ Generated second part")
+            
+            return full_chapter
+            
+        except Exception as e:
+            print(f"   ✗ Fallback also failed: {str(e)}")
             return f"# {chapter['title']}\n\n[Chapter generation failed: {str(e)}]"
     
     def clean_text(self, text: str) -> str:
@@ -262,30 +333,33 @@ Chapter:"""
         
         return text.strip()
     
-    def generate_full_book(self, start_chapter: int = 0):
+    def generate_full_book(self, start_chapter: int = 0, model: str = "gpt-4"):
         """Generate the entire book."""
         print(f"\n🚀 STARTING BOOK GENERATION")
+        print(f"Model: {model}")
         print(f"Chapters to generate: {len(self.book['chapters']) - start_chapter}")
         
         full_book = f"# {self.book['title']}\n\n"
         
         for i in range(start_chapter, len(self.book['chapters'])):
-            chapter_text = self.generate_chapter(i)
+            chapter_text = self.generate_chapter(i, model)
             
-            if chapter_text and not "[Chapter generation failed" in chapter_text:
+            if chapter_text:  # Only add if generation succeeded
                 full_book += chapter_text + "\n\n" + "="*80 + "\n\n"
                 
                 # Save complete book so far
-                with open('generated_book.md', 'w', encoding='utf-8') as f:
+                with open('persuasion_inc_full.md', 'w', encoding='utf-8') as f:
                     f.write(full_book)
                 
                 print(f"\n📚 Progress: {i+1}/{len(self.book['chapters'])} chapters complete")
             
-            # Brief pause between chapters
-            time.sleep(2)
+            # Pause between chapters
+            if i < len(self.book['chapters']) - 1:
+                print("⏸️  Pausing 10 seconds before next chapter...")
+                time.sleep(10)
         
         print(f"\n🎉 BOOK GENERATION COMPLETE!")
-        print(f"📁 Full book saved as: generated_book.md")
+        print(f"📁 Full book saved as: persuasion_inc_full.md")
         print(f"📊 Total words: {len(full_book.split())}")
         
         self.conn.close()
@@ -295,30 +369,42 @@ Chapter:"""
 if __name__ == "__main__":
     import sys
     
+    # Check API key
+    if not os.getenv('OPENAI_API_KEY'):
+        print("❌ ERROR: OPENAI_API_KEY not found in .env file!")
+        sys.exit(1)
+    
     try:
         generator = PersuasionIncGenerator()
         
         if len(sys.argv) > 1 and sys.argv[1] == "test":
             # Test mode: just generate introduction
             print("🧪 TEST MODE: Generating Introduction only")
-            intro = generator.generate_chapter(0)
+            intro = generator.generate_chapter(0, model="gpt-4")
             
             if intro:
                 print("\n✅ Test complete! Check the generated file.")
-                print("\nThe chapter should flow naturally with YOUR detailed style requirements.")
+                print("\nThe chapter should now flow naturally without rigid section headers.")
+                print("All writing characteristics (serious/satirical/academic/reflective) should")
+                print("emerge organically as the content demands, not in formula sections.")
+            else:
+                print("\n⚠️  Generation failed. If you got a 502 error, just run it again.")
         else:
             # Full generation
             print("📚 FULL BOOK GENERATION MODE")
-            print("This will generate all chapters using your fine-tuned model")
-            print("Estimated time: 4-8 hours")
+            print("This will generate all chapters using GPT-4 with organic flow")
+            print("Estimated cost: $30-40")
+            print("Estimated time: 40-60 minutes")
             
             confirm = input("\nProceed? (yes/no): ")
             if confirm.lower() == 'yes':
-                generator.generate_full_book(start_chapter=0)
+                generator.generate_full_book(start_chapter=0, model="gpt-4")
             else:
                 print("Cancelled. Run with 'test' argument to generate just the introduction.")
                 
     except Exception as e:
         print(f"\n❌ Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print("\nTroubleshooting:")
+        print("1. Check your .env file has OPENAI_API_KEY=sk-...")
+        print("2. Make sure you've run: pip install openai==0.28.1")
+        print("3. Verify your API key is valid at platform.openai.com")
